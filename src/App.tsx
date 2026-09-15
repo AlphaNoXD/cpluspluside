@@ -328,6 +328,23 @@ int main() {
     URL.revokeObjectURL(url);
   };
 
+  // Direct copy current file code to clipboard
+  const handleCopyCurrentCode = async () => {
+    if (!activeFile) return;
+    try {
+      await navigator.clipboard.writeText(activeFile.content);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = activeFile.content;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  };
+
   // Open Project by ID handler
   const handleOpenProject = async (targetId: string): Promise<boolean> => {
     const clean = targetId.trim().toUpperCase();
@@ -539,6 +556,7 @@ int main() {
         onNewFile={handleNewFile}
         onOpenFile={handleOpenFile}
         onExportFile={handleExportFile}
+        onCopyCode={handleCopyCurrentCode}
         onResetExamples={handleResetExamples}
         onOpenHelp={() => setIsHelpOpen(true)}
       />

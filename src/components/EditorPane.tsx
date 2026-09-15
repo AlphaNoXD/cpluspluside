@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import Editor, { Monaco, OnMount } from '@monaco-editor/react';
+import { Copy, Check } from 'lucide-react';
 import { registerCppCompletions } from '../monacoConfig';
 import { CompilerDiagnostic } from '../types';
 
@@ -20,6 +21,27 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
 }) => {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<Monaco | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.warn('Clipboard write failed, using fallback:', err);
+      const textarea = document.createElement('textarea');
+      textarea.value = content;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -71,10 +93,34 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
     <div className="relative w-full h-full flex flex-col bg-neutral-900 overflow-hidden">
       {/* Visual File Header bar */}
       <div className="h-7 bg-neutral-900/90 border-b border-neutral-800/60 flex items-center justify-between px-3 text-[11px] text-neutral-400 select-none">
-        <span className="font-mono text-neutral-300">{fileName}</span>
-        <div className="flex items-center gap-3">
-          <span>C++ (C++17/20)</span>
-          <span>UTF-8</span>
+        <div className="flex items-center gap-2 overflow-hidden">
+          <span className="font-mono text-neutral-300 truncate">{fileName}</span>
+        </div>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            id="editor-copy-code-btn"
+            onClick={handleCopyCode}
+            title="Copy code to clipboard"
+            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+              copied
+                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
+                : 'text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 border border-neutral-700/50'
+            }`}
+          >
+            {copied ? (
+              <>
+                <Check size={11} className="text-emerald-400" />
+                <span>Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy size={11} />
+                <span>Copy Code</span>
+              </>
+            )}
+          </button>
+          <span className="hidden sm:inline">C++ (C++17/20)</span>
+          <span className="hidden md:inline">UTF-8</span>
         </div>
       </div>
 

@@ -31,6 +31,7 @@ interface TopBarProps {
   onNewFile: () => void;
   onOpenFile: (file: File) => void;
   onExportFile: () => void;
+  onCopyCode?: () => void;
   onResetExamples: () => void;
   onOpenHelp: () => void;
 }
@@ -49,6 +50,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onNewFile,
   onOpenFile,
   onExportFile,
+  onCopyCode,
   onResetExamples,
   onOpenHelp,
 }) => {
@@ -182,6 +184,20 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </button>
 
                 <div className="my-1 border-t border-neutral-800" />
+
+                {onCopyCode && (
+                  <button
+                    onClick={() => {
+                      setShowFileMenu(false);
+                      onCopyCode();
+                    }}
+                    title={`Copy code in ${currentFileName} to clipboard`}
+                    className="w-full text-left px-3 py-2 hover:bg-neutral-800 flex items-center gap-2 cursor-pointer text-neutral-300"
+                  >
+                    <Copy size={13} className="text-neutral-400" />
+                    <span>Copy Code</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => {
@@ -325,6 +341,19 @@ export const TopBar: React.FC<TopBarProps> = ({
                   <FolderOpen size={14} className="text-neutral-400" />
                   <span>Import Local .cpp</span>
                 </button>
+
+                {onCopyCode && (
+                  <button
+                    onClick={() => {
+                      setShowMobileMenu(false);
+                      onCopyCode();
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-neutral-800 flex items-center gap-2.5 cursor-pointer text-neutral-200"
+                  >
+                    <Copy size={14} className="text-neutral-400" />
+                    <span>Copy Code</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => {
