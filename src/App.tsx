@@ -5,16 +5,50 @@ import { EditorPane } from './components/EditorPane';
 import { OutputPane } from './components/OutputPane';
 import { HelpModal } from './components/HelpModal';
 import { CloseConfirmModal } from './components/CloseConfirmModal';
+import { ProjectModal } from './components/ProjectModal';
+import { ConflictModal } from './components/ConflictModal';
 import { STARTER_FILES } from './starterFiles';
 import { CppExecutionSession, validateCppCode } from './cppEngine';
-import { CppFile, ExecutionStatus, CompilerDiagnostic } from './types';
+import { CppFile, ExecutionStatus, CompilerDiagnostic, ProjectData } from './types';
+import { 
+  fetchProjectFromCloud, 
+  saveProjectToCloud, 
+  subscribeToProject, 
+  generateProjectId,
+  testFirestoreConnection
+} from './firebase';
 import { GripVertical } from 'lucide-react';
 
 const STORAGE_KEY_FILES = 'simple_cpp_ide_saved_files_v1';
 const STORAGE_KEY_ACTIVE = 'simple_cpp_ide_active_id_v1';
+const STORAGE_KEY_PROJECT_ID = 'simple_cpp_ide_project_id';
 
 export default function App() {
-  // 1. Files & Tabs State
+  // Unique client identifier for this tab to avoid self-conflict detection
+  const clientId = useRef<string>(`client-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`).current;
+
+  // 1. Cloud Project State
+  const [projectId, setProjectId] = useState<string | null>(() => {
+    try {
+      // Priority 1: URL parameter ?project=ABC123
+      const params = new URLSearchParams(window.location.search);
+      const urlProj = params.get('project');
+      if (urlProj) return urlProj.trim().toUpperCase();
+
+      // Priority 2: Local storage
+      const stored = localStorage.getItem(STORAGE_KEY_PROJECT_ID);
+      if (stored) return stored.trim().toUpperCase();
+    } catch {}
+    return null;
+  });
+
+  const [lastCloudUpdated, setLastCloudUpdated] = useState<number>(0);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isSavedRecently, setIsSavedRecently] = useState<boolean>(false);
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState<boolean>(false);
+  const [conflictProject, setConflictProject] = useState<ProjectData | null>(null);
+
+  // 2. Files & Tabs State
   const [files, setFiles] = useState<CppFile[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_FILES);
@@ -38,7 +72,7 @@ export default function App() {
     return STARTER_FILES[0]?.id || 'starter-main';
   });
 
-  // 2. Execution State
+  // 3. Execution State
   const [stdout, setStdout] = useState<string>('');
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('idle');
   const [executionTimeMs, setExecutionTimeMs] = useState<number | undefined>(undefined);
@@ -46,10 +80,10 @@ export default function App() {
   const [errorDiagnostic, setErrorDiagnostic] = useState<CompilerDiagnostic | null>(null);
   const [targetEditorLine, setTargetEditorLine] = useState<number | null>(null);
 
-  // 3. UI Modals & Split Resizing
+  // 4. UI Modals & Split Resizing
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [fileToClose, setFileToClose] = useState<CppFile | null>(null);
-  const [splitPercent, setSplitPercent] = useState<number>(55); // 55% editor, 45% console on desktop
+  const [splitPercent, setSplitPercent] = useState<number>(55);
   const isDraggingSplitRef = useRef(false);
 
   // Active execution session ref
@@ -57,14 +91,99 @@ export default function App() {
 
   // Get active file
   const activeFile = files.find((f) => f.id === activeFileId) || files[0];
+  const hasUnsavedChanges = files.some((f) => f.isModified);
 
-  // Save to localStorage when files or active tab change
+  // Verify Firestore connection on mount
+  useEffect(() => {
+    testFirestoreConnection();
+  }, []);
+
+  // Sync Project ID in URL & localStorage
+  const updateActiveProjectId = useCallback((newId: string | null) => {
+    setProjectId(newId);
+    if (newId) {
+      try {
+        localStorage.setItem(STORAGE_KEY_PROJECT_ID, newId);
+        const url = new URL(window.location.href);
+        url.searchParams.set('project', newId);
+        window.history.replaceState({}, '', url.toString());
+      } catch {}
+    } else {
+      try {
+        localStorage.removeItem(STORAGE_KEY_PROJECT_ID);
+        const url = new URL(window.location.href);
+        url.searchParams.delete('project');
+        window.history.replaceState({}, '', url.toString());
+      } catch {}
+    }
+  }, []);
+
+  // Initial cloud project load when app starts
+  useEffect(() => {
+    if (!projectId) return;
+
+    let isMounted = true;
+    const loadInitialProject = async () => {
+      try {
+        const cloudData = await fetchProjectFromCloud(projectId);
+        if (isMounted && cloudData && cloudData.files.length > 0) {
+          setFiles(cloudData.files);
+          setActiveFileId(cloudData.files[0].id);
+          setLastCloudUpdated(cloudData.lastUpdated);
+        }
+      } catch (err) {
+        console.warn('Initial project cloud fetch error:', err);
+      }
+    };
+
+    loadInitialProject();
+    return () => {
+      isMounted = false;
+    };
+  }, [projectId]);
+
+  // Real-time synchronization for multi-device collaboration
+  useEffect(() => {
+    if (!projectId) return;
+
+    const unsubscribe = subscribeToProject(
+      projectId,
+      (remoteProject) => {
+        // Ignore updates initiated by this browser session
+        if (remoteProject.lastUpdatedBy === clientId) {
+          return;
+        }
+
+        // If remote is newer than our last synced state
+        if (remoteProject.lastUpdated > lastCloudUpdated) {
+          // If the user has local unsaved modifications, prompt them instead of silently overwriting
+          const userHasDirtyFiles = files.some((f) => f.isModified);
+          if (userHasDirtyFiles) {
+            setConflictProject(remoteProject);
+          } else {
+            // Smoothly sync remote files without interrupting
+            setFiles(remoteProject.files);
+            setLastCloudUpdated(remoteProject.lastUpdated);
+          }
+        }
+      },
+      (err) => {
+        console.warn('Realtime subscription issue:', err);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [projectId, lastCloudUpdated, files, clientId]);
+
+  // Local storage persistence fallback
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(files));
       localStorage.setItem(STORAGE_KEY_ACTIVE, activeFileId);
     } catch (e) {
-      console.warn('Storage quota exceeded or storage error:', e);
+      console.warn('Storage error:', e);
     }
   }, [files, activeFileId]);
 
@@ -73,7 +192,6 @@ export default function App() {
     if (!activeFile) return;
 
     const timer = setTimeout(() => {
-      // Only perform background lint check if not actively executing
       if (executionStatus === 'idle' || executionStatus === 'finished') {
         const diag = validateCppCode(activeFile.content);
         if (diag) {
@@ -98,7 +216,7 @@ export default function App() {
     );
   };
 
-  // Create new file
+  // Create new file in current project
   const handleNewFile = () => {
     let baseName = 'untitled.cpp';
     let counter = 1;
@@ -125,14 +243,14 @@ int main() {
     return 0;
 }
 `,
-      isModified: false,
+      isModified: true,
     };
 
     setFiles((prev) => [...prev, newFile]);
     setActiveFileId(newFile.id);
   };
 
-  // Open / Upload file
+  // Open / Upload local file
   const handleOpenFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -142,13 +260,11 @@ int main() {
         fileName += '.cpp';
       }
 
-      // Check if file already open
       const existing = files.find((f) => f.name.toLowerCase() === fileName.toLowerCase());
       if (existing) {
-        // Update content and focus
         setFiles((prev) =>
           prev.map((f) =>
-            f.id === existing.id ? { ...f, content, isModified: false } : f
+            f.id === existing.id ? { ...f, content, isModified: true } : f
           )
         );
         setActiveFileId(existing.id);
@@ -157,7 +273,7 @@ int main() {
           id: `upload-${Date.now()}`,
           name: fileName,
           content,
-          isModified: false,
+          isModified: true,
         };
         setFiles((prev) => [...prev, newFile]);
         setActiveFileId(newFile.id);
@@ -166,8 +282,40 @@ int main() {
     reader.readAsText(file);
   };
 
-  // Save / Download current file
-  const handleDownloadFile = () => {
+  // Cloud Save Action (Primary Save: saves files to cloud, updates lastUpdated, shows "Saved" confirmation)
+  const handleSaveToCloud = useCallback(async () => {
+    let targetId = projectId;
+
+    // If no project exists yet, generate a new project ID
+    if (!targetId) {
+      targetId = generateProjectId();
+      updateActiveProjectId(targetId);
+    }
+
+    setIsSaving(true);
+    try {
+      const result = await saveProjectToCloud(targetId, files, clientId);
+      if (result.success) {
+        setLastCloudUpdated(result.lastUpdated);
+        // Clear isModified flags
+        setFiles((prev) => prev.map((f) => ({ ...f, isModified: false })));
+        setIsSavedRecently(true);
+        setTimeout(() => {
+          setIsSavedRecently(false);
+        }, 2500);
+      } else {
+        console.error('Save failed:', result.error);
+        alert(`Failed to save to cloud: ${result.error}`);
+      }
+    } catch (err) {
+      console.error('Error saving project:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [projectId, files, clientId, updateActiveProjectId]);
+
+  // Export current file (.cpp download option kept separate from primary Save)
+  const handleExportFile = () => {
     if (!activeFile) return;
     const blob = new Blob([activeFile.content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -178,11 +326,53 @@ int main() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
 
-    // Clear modified flag after download
-    setFiles((prev) =>
-      prev.map((f) => (f.id === activeFile.id ? { ...f, isModified: false } : f))
-    );
+  // Open Project by ID handler
+  const handleOpenProject = async (targetId: string): Promise<boolean> => {
+    const clean = targetId.trim().toUpperCase();
+    const data = await fetchProjectFromCloud(clean);
+    if (!data) return false;
+
+    updateActiveProjectId(clean);
+    setFiles(data.files.map((f) => ({ ...f, isModified: false })));
+    if (data.files.length > 0) {
+      setActiveFileId(data.files[0].id);
+    }
+    setLastCloudUpdated(data.lastUpdated);
+    return true;
+  };
+
+  // Create Project handler
+  const handleCreateProject = async (newId: string, fromScratch: boolean): Promise<boolean> => {
+    const clean = newId.trim().toUpperCase();
+    const initialFiles = fromScratch ? STARTER_FILES : files;
+
+    const result = await saveProjectToCloud(clean, initialFiles, clientId);
+    if (!result.success) return false;
+
+    updateActiveProjectId(clean);
+    setFiles(initialFiles.map((f) => ({ ...f, isModified: false })));
+    if (initialFiles.length > 0) {
+      setActiveFileId(initialFiles[0].id);
+    }
+    setLastCloudUpdated(result.lastUpdated);
+    setIsSavedRecently(true);
+    setTimeout(() => setIsSavedRecently(false), 2500);
+    return true;
+  };
+
+  // Conflict handling actions
+  const handleLoadCloudVersion = () => {
+    if (conflictProject) {
+      setFiles(conflictProject.files.map((f) => ({ ...f, isModified: false })));
+      setLastCloudUpdated(conflictProject.lastUpdated);
+      setConflictProject(null);
+    }
+  };
+
+  const handleKeepMyChanges = () => {
+    setConflictProject(null);
   };
 
   // Close tab request
@@ -198,7 +388,7 @@ int main() {
   };
 
   const executeCloseTab = (fileId: string) => {
-    if (files.length <= 1) return; // Keep at least one tab open
+    if (files.length <= 1) return;
 
     const targetIndex = files.findIndex((f) => f.id === fileId);
     const newFiles = files.filter((f) => f.id !== fileId);
@@ -214,11 +404,11 @@ int main() {
   // Rename file
   const handleRenameFile = (fileId: string, newName: string) => {
     setFiles((prev) =>
-      prev.map((f) => (f.id === fileId ? { ...f, name: newName } : f))
+      prev.map((f) => (f.id === fileId ? { ...f, name: newName, isModified: true } : f))
     );
   };
 
-  // Reset original examples
+  // Reset original starter examples
   const handleResetExamples = () => {
     if (window.confirm('Reset all starter example files to their default contents?')) {
       setFiles(STARTER_FILES);
@@ -233,7 +423,6 @@ int main() {
   const handleRun = useCallback(() => {
     if (!activeFile) return;
 
-    // Terminate existing session if active
     if (sessionRef.current) {
       sessionRef.current.stop();
       sessionRef.current = null;
@@ -289,7 +478,7 @@ int main() {
     }
   };
 
-  // Keyboard shortcut: Ctrl+Enter (Run) & Ctrl+S (Save)
+  // Keyboard shortcut: Ctrl+Enter (Run) & Ctrl+S (Save to Cloud)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -297,12 +486,12 @@ int main() {
         handleRun();
       } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        handleDownloadFile();
+        handleSaveToCloud();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleRun, handleDownloadFile]);
+  }, [handleRun, handleSaveToCloud]);
 
   // Split-pane drag handling
   const handleMouseDownSplitter = () => {
@@ -339,11 +528,17 @@ int main() {
       <TopBar
         currentFileName={activeFile?.name || 'code.cpp'}
         executionStatus={executionStatus}
+        projectId={projectId}
+        isSaving={isSaving}
+        isSavedRecently={isSavedRecently}
+        hasUnsavedChanges={hasUnsavedChanges}
+        onOpenProjectModal={() => setIsProjectModalOpen(true)}
+        onSaveToCloud={handleSaveToCloud}
         onRun={handleRun}
         onStop={handleStop}
         onNewFile={handleNewFile}
         onOpenFile={handleOpenFile}
-        onDownloadFile={handleDownloadFile}
+        onExportFile={handleExportFile}
         onResetExamples={handleResetExamples}
         onOpenHelp={() => setIsHelpOpen(true)}
       />
@@ -389,7 +584,7 @@ int main() {
           <GripVertical size={10} className="text-neutral-500 group-hover:text-white" />
         </div>
 
-        {/* Right Side: Output Terminal */}
+        {/* Right Side: Output Terminal (Traditional Black Monospace Console) */}
         <div 
           className="w-full md:h-full flex-1 md:flex-1 border-t md:border-t-0 md:border-l border-neutral-800 overflow-hidden"
           style={{
@@ -410,12 +605,27 @@ int main() {
             onSubmitInput={handleSubmitInput}
             onJumpToLine={(line) => {
               setTargetEditorLine(line);
-              // Reset trigger after tick
               setTimeout(() => setTargetEditorLine(null), 100);
             }}
           />
         </div>
       </main>
+
+      {/* Project Open / Create Modal */}
+      <ProjectModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        currentProjectId={projectId}
+        onOpenProject={handleOpenProject}
+        onCreateProject={handleCreateProject}
+      />
+
+      {/* Cloud Conflict Alert Modal */}
+      <ConflictModal
+        isOpen={!!conflictProject}
+        onLoadCloudVersion={handleLoadCloudVersion}
+        onKeepMyChanges={handleKeepMyChanges}
+      />
 
       {/* Beginner C++ Help Modal */}
       <HelpModal
@@ -437,7 +647,7 @@ int main() {
         }}
         onCancel={() => setFileToClose(null)}
         onSaveAndClose={() => {
-          handleDownloadFile();
+          handleSaveToCloud();
           if (fileToClose) executeCloseTab(fileToClose.id);
         }}
       />

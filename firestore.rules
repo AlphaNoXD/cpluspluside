@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isValidProject(data) {
+      return data.projectId is string
+        && data.projectId.size() >= 4
+        && data.projectId.size() <= 20
+        && data.files is list
+        && data.files.size() <= 50
+        && data.lastUpdated is number;
+    }
+
+    match /projects/{projectId} {
+      // Must know the specific Project ID to open it. Disallow public listing/scraping.
+      allow get: if true;
+      allow list: if false;
+      allow create: if isValidProject(request.resource.data) && request.resource.data.projectId == projectId;
+      allow update: if isValidProject(request.resource.data) && request.resource.data.projectId == projectId;
+      allow delete: if false;
+    }
+  }
+}

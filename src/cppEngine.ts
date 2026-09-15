@@ -224,6 +224,10 @@ export class CppExecutionSession {
         if (res !== false) {
           // Execution finished
           const exitCode = typeof res?.v === 'number' ? res.v : 0;
+          const ensureNewline = this.accumulatedStdout.endsWith('\n') ? '' : '\n';
+          const finishBanner = `${ensureNewline}=== Program finished ===\n`;
+          this.accumulatedStdout += finishBanner;
+          this.onStdoutCallback(finishBanner);
           this.onCompleteCallback({
             stdout: this.accumulatedStdout,
             exitCode,
@@ -234,6 +238,10 @@ export class CppExecutionSession {
       }
 
       if (dbg.done) {
+        const ensureNewline = this.accumulatedStdout.endsWith('\n') ? '' : '\n';
+        const finishBanner = `${ensureNewline}=== Program finished ===\n`;
+        this.accumulatedStdout += finishBanner;
+        this.onStdoutCallback(finishBanner);
         this.onCompleteCallback({
           stdout: this.accumulatedStdout,
           exitCode: 0,
@@ -283,8 +291,12 @@ export class CppExecutionSession {
       clearTimeout(this.stepTimer);
       this.stepTimer = null;
     }
+    const ensureNewline = this.accumulatedStdout.endsWith('\n') ? '' : '\n';
+    const stopBanner = `${ensureNewline}=== Program stopped ===\n`;
+    this.accumulatedStdout += stopBanner;
+    this.onStdoutCallback(stopBanner);
     this.onCompleteCallback({
-      stdout: this.accumulatedStdout + '\n[Program execution stopped by user]',
+      stdout: this.accumulatedStdout,
       exitCode: 130,
       timeMs: Date.now() - this.startTime,
     });

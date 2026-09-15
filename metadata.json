@@ -1,6 +1,6 @@
 {
   "name": "Simple C++ IDE",
-  "description": "A simple, beginner-friendly web-based C++ IDE that runs entirely in the browser with Monaco editor, syntax highlighting, autocomplete, interactive console input, and starter files.",
+  "description": "A simple, beginner-friendly web-based C++ IDE with Monaco editor, traditional console output/input, and shared online cloud saving with unique Project IDs for multi-device editing.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

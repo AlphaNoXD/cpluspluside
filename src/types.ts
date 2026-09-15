@@ -22,3 +22,11 @@ export interface ExecutionResult {
   timeMs: number;
   error?: CompilerDiagnostic;
 }
+
+export interface ProjectData {
+  projectId: string;
+  files: CppFile[];
+  lastUpdated: number;
+  lastUpdatedBy?: string;
+}
+

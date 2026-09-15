@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A shared C++ coding project containing multiple source files",
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "description": "Unique human-readable project identifier (e.g. ABC123)"
+        },
+        "files": {
+          "type": "array",
+          "description": "List of C++ source files in the project"
+        },
+        "lastUpdated": {
+          "type": "number",
+          "description": "Unix timestamp in milliseconds when project was last saved"
+        },
+        "lastUpdatedBy": {
+          "type": "string",
+          "description": "Client or session ID that performed the last save"
+        }
+      },
+      "required": ["projectId", "files", "lastUpdated"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Collection of shared C++ projects accessible via Project ID"
+    }
+  }
+}
