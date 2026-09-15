@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Play, Square } from 'lucide-react';
 import { ExecutionStatus, CompilerDiagnostic } from '../types';
 
 interface OutputPaneProps {
@@ -11,6 +11,8 @@ interface OutputPaneProps {
   onClearOutput: () => void;
   onSubmitInput: (value: string) => void;
   onJumpToLine: (line: number) => void;
+  onRun?: () => void;
+  onStop?: () => void;
 }
 
 export const OutputPane: React.FC<OutputPaneProps> = ({
@@ -20,6 +22,8 @@ export const OutputPane: React.FC<OutputPaneProps> = ({
   onClearOutput,
   onSubmitInput,
   onJumpToLine,
+  onRun,
+  onStop,
 }) => {
   const [currentInput, setCurrentInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -27,6 +31,7 @@ export const OutputPane: React.FC<OutputPaneProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isWaitingInput = executionStatus === 'waiting_input';
+  const isRunning = executionStatus === 'running' || executionStatus === 'waiting_input' || executionStatus === 'compiling';
 
   // Automatically focus input when waiting for cin
   useEffect(() => {
@@ -77,18 +82,49 @@ export const OutputPane: React.FC<OutputPaneProps> = ({
           )}
         </div>
 
-        <button
-          id="clear-output-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClearOutput();
-          }}
-          title="Clear console"
-          className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors cursor-pointer"
-        >
-          <Trash2 size={11} />
-          <span>Clear</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Quick Run / Stop action in console header (great for mobile) */}
+          {onRun && (
+            isRunning ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStop?.();
+                }}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-all cursor-pointer"
+              >
+                <Square size={11} fill="currentColor" />
+                <span>Stop</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRun();
+                }}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all cursor-pointer ring-1 ring-emerald-400/40"
+              >
+                <Play size={11} fill="currentColor" />
+                <span>Run ▶</span>
+              </button>
+            )
+          )}
+
+          <button
+            id="clear-output-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClearOutput();
+            }}
+            title="Clear console"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors cursor-pointer"
+          >
+            <Trash2 size={11} />
+            <span>Clear</span>
+          </button>
+        </div>
       </div>
 
       {/* Terminal Screen (Traditional Black Monospace C++ Console) */}

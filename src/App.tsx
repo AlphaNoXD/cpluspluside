@@ -523,7 +523,7 @@ int main() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-neutral-950 text-neutral-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen h-[100dvh] w-screen max-w-full bg-neutral-950 text-neutral-100 overflow-hidden font-sans">
       {/* 1. Top Navigation Bar */}
       <TopBar
         currentFileName={activeFile?.name || 'code.cpp'}
@@ -560,7 +560,7 @@ int main() {
           className="w-full md:h-full flex-1 md:flex-none overflow-hidden"
           style={{
             width: typeof window !== 'undefined' && window.innerWidth >= 768 ? `${splitPercent}%` : '100%',
-            height: typeof window !== 'undefined' && window.innerWidth >= 768 ? '100%' : '58%',
+            height: typeof window !== 'undefined' && window.innerWidth >= 768 ? '100%' : '56%',
           }}
         >
           {activeFile && (
@@ -589,7 +589,7 @@ int main() {
           className="w-full md:h-full flex-1 md:flex-1 border-t md:border-t-0 md:border-l border-neutral-800 overflow-hidden"
           style={{
             width: typeof window !== 'undefined' && window.innerWidth >= 768 ? `${100 - splitPercent}%` : '100%',
-            height: typeof window !== 'undefined' && window.innerWidth >= 768 ? '100%' : '42%',
+            height: typeof window !== 'undefined' && window.innerWidth >= 768 ? '100%' : '44%',
           }}
         >
           <OutputPane
@@ -607,6 +607,8 @@ int main() {
               setTargetEditorLine(line);
               setTimeout(() => setTargetEditorLine(null), 100);
             }}
+            onRun={handleRun}
+            onStop={handleStop}
           />
         </div>
       </main>
